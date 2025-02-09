@@ -1,4 +1,7 @@
 from lupa import LuaRuntime
+import re
+
+# Make sure to copy over the recipe.lua file from your Factorio install. It should be located at ...\Factorio\data\base\prototypes\recipe.lua
 
 lua = LuaRuntime(unpack_returned_tuples=True)
 
@@ -9,20 +12,30 @@ def load_lua_table(filename : str):
     except FileNotFoundError:
         raise FileNotFoundError(f"File '{filename}' not found!")
 
-    # TODO: Remove the first line with 'data-extend: {' and the last line with a bracket '}'
+    # Select only the parts after the last data:extend
+    lua_code = lua_code.split("data:extend")[-1]
+    # Remove the first (
+    lua_code = re.sub(".*\({","{", lua_code)
+    # Remove the last )
+    lua_code = re.sub("\)\s*$","",lua_code)
+
+
 
     # If the file does not start with "return", prepend it.
     if not lua_code.lstrip().startswith("return"):
         lua_code = "return " + lua_code
 
+    # For debugging, print the first 100 characters
+    #print(lua_code[0:100])
+
     try:
         lua_table = lua.execute(lua_code)
     except Exception as e:
         raise RuntimeError("Error executing Lua code: " + str(e))
+        
     
     return lua_table
 
-# The rest of the code remains the same...
 def lua_table_to_python(obj):
     if hasattr(obj, 'items'):
         keys = list(obj.keys())
@@ -42,27 +55,22 @@ def lua_table_to_python(obj):
     else:
         return obj
 '''
-def convert_ingredients_field(data):
-    if isinstance(data, dict):
-        if "ingredients" in data and isinstance(data["ingredients"], list):
-            ing_list = data["ingredients"]
-            new_ing = {}
-            for item in ing_list:
-                if isinstance(item, (list, tuple)) and len(item) == 2:
-                    ingredient, amount = item
-                    new_ing[ingredient] = amount
-                else:
-                    new_ing[item] = None
-            data["ingredients"] = new_ing
+Given a recipe.lua file, extract all the factorio recipes.
 
-        for key, value in data.items():
-            convert_ingredients_field(value)
-    elif isinstance(data, list):
-        for item in data:
-            convert_ingredients_field(item)
-    return data
+The results are dictionaries, with each item and core features. 
+
+recipe['name'] = {
+    'ingredients' : { str => int },
+    'result_count' : int,
+    'energy_required' : float,
+    'allow_productivity' : bool
+    (if incl_secondary_params)
+    'category' : str,
+    'subgroup' : str,
+    'recipe_name' : str
+}
 '''
-def read_recipes(filename: str = 'recipe.lua', expensive : bool = False, secondary_params : bool = False):
+def read_recipes(filename: str = 'recipe.lua', expensive : bool = False, incl_secondary_params : bool = False):
     try:
         lua_table = load_lua_table(filename)
     except Exception as e:
@@ -71,67 +79,79 @@ def read_recipes(filename: str = 'recipe.lua', expensive : bool = False, seconda
 
     py_obj = lua_table_to_python(lua_table)
 
+    #print(py_obj)
+
     # post process to convert the list into a dictionary with only certain fields.
     # 'type': 'recipe'
-    # recipes['result'] = {'ingredients' : {'name1': num1, 'name2': num2}, 'energy_required' : ?}
-    # Some recipes (like fluids) have multiple results, which is a field 'results'. For now, we ignore. 
-    recipes = {}
+    # recipes['copper-cable'] = {'ingredients' : {'name1': num1, 'name2': num2}, 'energy_required' : ?}
+
+    singular_recipes = {}
     
-    for a_recipe in py_obj:
-        if(a_recipe['type'] == 'recipe'):
-            if(('subgroup' in a_recipe) and (a_recipe['subgroup'] == 'fluid-recipes')):
-                continue
-            # What if the recipe has a "normal" and "expensive" version?
-            # This means it will not have a 'result' value, it will contain a 'normal' and 'expensive' field
-            # these fields contain 'result', 'ingredients'
-            curr_recipe = {}
-            if('normal' in a_recipe):
-                if(expensive):
-                    curr_recipe = a_recipe['expensive']
-                else:
-                    curr_recipe = a_recipe['normal']
-            else:
-                curr_recipe = a_recipe
-            
-            # From now on, we use curr_recipe instead of a_recipe
-            # TODO: make a special case for recipes with multiple outputs, which is stored in 'results'. These will need to use the recipe name, annoyingly
-            if('results' in curr_recipe):
-                continue
-            if('result' not in curr_recipe):
-                continue
+    for curr_recipe in py_obj:
+        if(curr_recipe['type'] == 'recipe'):
+            #if(('subgroup' in curr_recipe) and (curr_recipe['subgroup'] == 'fluid-recipes')):
+            #    continue
+
             new_recipe_dict = {}
-            new_name = curr_recipe['result']
+
+            #Values in the list 'results' have the form:
+            #{type="???", name="???", amount=?}
+
+            if('results' not in curr_recipe):
+                # This means the recipe has zero output. Useless. 
+                continue
+            elif('results' in curr_recipe and len(curr_recipe['results']) == 1):
+                only_result = curr_recipe['results'][0]
+                new_recipe_dict['result_count'] = only_result['amount']
+
+            # TODO: make a special case for recipes with *multiple* outputs, which are stored in 'results'. These will need to use the recipe name, annoyingly
+            elif('results' in curr_recipe):
+                continue
+
+
+            # Choose the name for this recipe. This should be the result, or the singular in 'results', otherwise the recipe name. 
+            if('results' in curr_recipe and len(curr_recipe['results']) == 1):
+                new_name = curr_recipe['results'][0]['name']
+            else:
+                new_name = curr_recipe['name']
 
             
-
             if('energy_required' in curr_recipe):
                 new_recipe_dict['energy_required'] = curr_recipe['energy_required']
             else:
-                new_recipe_dict['energy_required'] = 1
+                new_recipe_dict['energy_required'] = 0.5
             
             if('result_count' in curr_recipe):
                 new_recipe_dict['result_count'] = curr_recipe['result_count']
-            else:
+            elif('result_count' not in curr_recipe):
                 new_recipe_dict['result_count'] = 1
+
+            # Ingredients and results can both contain: 'ignored_by_stats' and 'ignored_by_productivity'. These are only used by coal liquefaction and kovarex refinement. 
 
             if('ingredients' in curr_recipe):
                 inputs_dict = {}
 
                 for an_input in curr_recipe['ingredients']:
-                        if(isinstance(an_input, list)):
-                            inputs_dict[an_input[0]] = an_input[1]
-                        elif(isinstance(an_input, dict)):
-                            # Here we handle fluid inputs
-                            # They are a dict of {'type': 'fluid', 'amount': ???, 'name': ???}
-                            inputs_dict[an_input['name']] = an_input['amount']
-                        else:
-                            raise Exception("ValueError: unknown recipe ingredient format encountered:" + str(an_input))
+                        
+                    #print("current ingredient:" + str(an_input))
+                    # Here we handle dictionary inputs
+                    # They are a dict of {'type': 'fluid', 'amount': ???, 'name': ???}
+                    # Change to ingredients = {'name1' : 'num1', 'name2' : 'num2', ...}
+                    inputs_dict[an_input['name']] = an_input['amount']
 
-    
+                    #raise Exception("ValueError: unknown recipe ingredient format encountered:" + str(an_input))
+
                 new_recipe_dict['ingredients'] = inputs_dict
 
+            if('allow_productivity' in curr_recipe):
+                # copy over whether productivity is allowed. 
+                # Currently, this only seems to exist when 'true'
+                new_recipe_dict['allow_productivity'] = curr_recipe['allow_productivity'] # = True
+            else:
+                new_recipe_dict['allow_productivity'] = False
+
             # What if we want secondary properties like category, subgroup, etc?
-            if(secondary_params):
+            if(incl_secondary_params):
                 if('category' in curr_recipe):
                     new_recipe_dict['category'] = curr_recipe['category']
                 if('subgroup' in curr_recipe):
@@ -139,10 +159,10 @@ def read_recipes(filename: str = 'recipe.lua', expensive : bool = False, seconda
                 if('name' in curr_recipe):
                     new_recipe_dict['recipe_name'] = curr_recipe['name']
 
-            recipes[new_name] = new_recipe_dict
-    return recipes
+            singular_recipes[new_name] = new_recipe_dict
+    return singular_recipes
 
-def all_fields(filename : str = 'recipe.lua'):
+def unique_fields(filename : str = 'recipe.lua'):
     try:
         lua_table = load_lua_table(filename)
     except Exception as e:
@@ -159,10 +179,10 @@ def all_fields(filename : str = 'recipe.lua'):
     #print(result_set)
         
 
-def main():
+if __name__ == '__main__':
     recipes = read_recipes(filename = 'recipe.lua', expensive = False)
     #print(recipes)
-    
+    """     
     try:
         lua_table = load_lua_table('recipe.lua')
     except Exception as e:
@@ -171,13 +191,17 @@ def main():
 
     py_obj = lua_table_to_python(lua_table)
 
-    print("all fields:")
-    print(all_fields())
+    print("unique fields:")
+    print(unique_fields())
     select_with_field = 'main_product'
     #dont_display = ['icon', 'icon_size', 'crafting_machine_tint', 'enabled']
     print("fields with", select_with_field)
     selected = list(x for x in py_obj if (select_with_field in x) or ('normal' in x and select_with_field in x['normal']))
     print(selected)
-
-if __name__ == '__main__':
-    main()
+    """
+    """     
+    keyword = 'science'
+    for x in recipes:
+        if(keyword in x):
+            print(x + str(recipes[x]))
+    """

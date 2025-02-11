@@ -1,4 +1,7 @@
 import params
+import RecipeParser
+
+recipes = RecipeParser.read_recipes(filename = params.RECIPE_PATH)
 
 
 # Given the different levels of Assemblers / Modules PLUS the addition of quality, we must define the 'maximum' tier our optimizer can use. 
@@ -11,3 +14,5 @@ import params
 
 # Productivity + Speed Module Beacon: High quantity items where large amounts are needed; speed modules almost entirely offset the downside of productivity modules. 
 # This requires there to be a large number of assemblers; because a tiled setup will have 6+ assemblers per beacon. 
+
+

@@ -1,6 +1,9 @@
 
 ### Values to modify ###
 
+# recipe.lua path:
+RECIPE_PATH = "recipe.lua"
+
 '''
 Yellow: 15 
 Red:    30

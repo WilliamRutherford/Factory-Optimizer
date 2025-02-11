@@ -1,5 +1,6 @@
 from lupa import LuaRuntime
 import re
+import params
 
 # Make sure to copy over the recipe.lua file from your Factorio install. It should be located at ...\Factorio\data\base\prototypes\recipe.lua
 
@@ -70,7 +71,7 @@ recipe['name'] = {
     'recipe_name' : str
 }
 '''
-def read_recipes(filename: str = 'recipe.lua', expensive : bool = False, incl_secondary_params : bool = False):
+def read_recipes(filename: str = 'recipe.lua', incl_secondary_params : bool = False):
     try:
         lua_table = load_lua_table(filename)
     except Exception as e:
@@ -145,7 +146,7 @@ def read_recipes(filename: str = 'recipe.lua', expensive : bool = False, incl_se
 
             if('allow_productivity' in curr_recipe):
                 # copy over whether productivity is allowed. 
-                # Currently, this only seems to exist when 'true'
+                # Currently, this field only seems to exist when 'true'
                 new_recipe_dict['allow_productivity'] = curr_recipe['allow_productivity'] # = True
             else:
                 new_recipe_dict['allow_productivity'] = False
@@ -180,7 +181,7 @@ def unique_fields(filename : str = 'recipe.lua'):
         
 
 if __name__ == '__main__':
-    recipes = read_recipes(filename = 'recipe.lua', expensive = False)
+    recipes = read_recipes(filename = 'recipe.lua')
     #print(recipes)
     """     
     try:

@@ -71,7 +71,7 @@ recipe['name'] = {
     'recipe_name' : str
 }
 '''
-def read_recipes(filename: str = 'recipe.lua', incl_secondary_params : bool = False):
+def read_recipes(filename: str = 'recipe.lua', incl_secondary_params : bool = False) -> dict:
     try:
         lua_table = load_lua_table(filename)
     except Exception as e:
